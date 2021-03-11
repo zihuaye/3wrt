@@ -172,6 +172,7 @@ ramips_setup_macs()
 		wan_mac=$(macaddr_add "$lan_mac" 2)
 		;;
 	xiaomi,mir3g|\
+	xiaomi,mir3g-v2|\
 	xiaomi,mi-router-ac2100|\
 	xiaomi,redmi-router-ac2100)
 		lan_mac=$(cat /sys/class/net/eth0/address)
