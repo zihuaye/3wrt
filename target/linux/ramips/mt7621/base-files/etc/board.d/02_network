@@ -15,9 +15,13 @@ ramips_setup_interfaces()
 	asiarf,ap7621-nv1|\
 	glinet,gl-mt1300|\
 	lenovo,newifi-d1|\
-	mikrotik,routerboard-m33g|\
-	xiaomi,mir3g-v2)
+	mikrotik,routerboard-m33g)
 		ucidef_set_interfaces_lan_wan "lan1 lan2" "wan"
+		;;
+	xiaomi,mir3g-v2)
+		ucidef_add_switch "switch0" \
+			"2:lan:2" "3:lan:1" "4:wan" "6t@eth0"
+		ucidef_set_interface_lan "eth0.1 ra0 rai0"
 		;;
 	d-team,newifi-d2)
 		ucidef_add_switch "switch0" \
