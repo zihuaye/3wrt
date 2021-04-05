@@ -98,7 +98,6 @@ hostapd_common_add_device_config() {
 	config_add_int local_pwr_constraint
 	config_add_string require_mode
 	config_add_boolean legacy_rates
-	config_add_boolean vendor_vht
 	config_add_int cell_density
 
 	config_add_string acs_chan_bias
@@ -113,11 +112,10 @@ hostapd_prepare_device_config() {
 	local config="$1"
 	local driver="$2"
 
-	local base="${config%%.conf}"
 	local base_cfg=
 
 	json_get_vars country country_ie beacon_int:100 dtim_period:2 doth require_mode legacy_rates \
-		acs_chan_bias local_pwr_constraint spectrum_mgmt_required airtime_mode cell_density vendor_vht
+		acs_chan_bias local_pwr_constraint spectrum_mgmt_required airtime_mode cell_density
 
 	hostapd_set_log_options base_cfg
 
@@ -185,7 +183,6 @@ hostapd_prepare_device_config() {
 				set_default rate_list "24000 36000 48000 54000"
 				set_default basic_rate_list "24000"
 			fi
-			[ -n "$vendor_vht" ] && append base_cfg "vendor_vht=$vendor_vht" "$N"
 		;;
 		a)
 			if [ "$cell_density" -eq 1 ]; then
@@ -333,6 +330,8 @@ hostapd_common_add_bss_config() {
 	config_add_array airtime_sta_weight
 	config_add_int airtime_bss_weight airtime_bss_limit
 
+	config_add_boolean multicast_to_unicast per_sta_vif
+
 	config_add_array hostapd_bss_options
 }
 
@@ -430,7 +429,7 @@ append_osu_icon() {
 }
 
 append_osu_provider() {
-	local cfgtype osu_server_uri osu_friendly_name osu_nai osu_nai2 osu_method_list 
+	local cfgtype osu_server_uri osu_friendly_name osu_nai osu_nai2 osu_method_list
 
 	config_load wireless
 	config_get cfgtype "$1" TYPE
@@ -482,7 +481,8 @@ hostapd_set_bss_options() {
 		acct_server acct_secret acct_port acct_interval \
 		bss_load_update_period chan_util_avg_period sae_require_mfp \
 		multi_ap multi_ap_backhaul_ssid multi_ap_backhaul_key skip_inactivity_poll \
-		airtime_bss_weight airtime_bss_limit airtime_sta_weight
+		airtime_bss_weight airtime_bss_limit airtime_sta_weight \
+		multicast_to_unicast per_sta_vif
 
 	set_default isolate 0
 	set_default maxassoc 0
@@ -666,7 +666,7 @@ hostapd_set_bss_options() {
 		set_default wps_independent 1
 
 		wps_state=2
-		[ -n "$wps_configured" ] && wps_state=1
+		[ -n "$wps_not_configured" ] && wps_state=1
 
 		[ "$ext_registrar" -gt 0 -a -n "$network_bridge" ] && append bss_conf "upnp_iface=$network_bridge" "$N"
 
@@ -743,7 +743,7 @@ hostapd_set_bss_options() {
 
 		if [ "$ieee80211r" -gt "0" ]; then
 			json_get_vars mobility_domain ft_psk_generate_local ft_over_ds reassociation_deadline
-			
+
 			set_default mobility_domain "$(echo "$ssid" | md5sum | head -c 4)"
 			set_default ft_over_ds 1
 			set_default reassociation_deadline 1000
@@ -944,6 +944,16 @@ hostapd_set_bss_options() {
 		json_for_each_item append_operator_icon operator_icon
 	fi
 
+	set_default multicast_to_unicast 0
+	if [ "$multicast_to_unicast" -gt 0 ]; then
+		append bss_conf "multicast_to_unicast=$multicast_to_unicast" "$N"
+	fi
+
+	set_default per_sta_vif 0
+	if [ "$per_sta_vif" -gt 0 ]; then
+		append bss_conf "per_sta_vif=$per_sta_vif" "$N"
+	fi
+
 	json_get_values opts hostapd_bss_options
 	for val in $opts; do
 		append bss_conf "$val" "$N"
@@ -1104,7 +1114,6 @@ wpa_supplicant_add_network() {
 	set_default multi_ap 0
 
 	local key_mgmt='NONE'
-	local enc_str=
 	local network_data=
 	local T="	"
 
@@ -1359,7 +1368,7 @@ wpa_supplicant_add_network() {
 		append network_data "mcast_rate=$mc_rate" "$N$T"
 	}
 
-	if [ "$key_mgnt" = "WPS" ]; then
+	if [ "$key_mgmt" = "WPS" ]; then
 		echo "wps_cred_processing=1" >> "$_config"
 	else
 		cat >> "$_config" <<EOF
@@ -1381,18 +1390,18 @@ wpa_supplicant_run() {
 	_wpa_supplicant_common "$ifname"
 
 	ubus wait_for wpa_supplicant
-	local supplicant_pid=$(ubus call wpa_supplicant config_add "{ \
+	local supplicant_res="$(ubus call wpa_supplicant config_add "{ \
 		\"driver\": \"${_w_driver:-wext}\", \"ctrl\": \"$_rpath\", \
 		\"iface\": \"$ifname\", \"config\": \"$_config\" \
 		${network_bridge:+, \"bridge\": \"$network_bridge\"} \
 		${hostapd_ctrl:+, \"hostapd_ctrl\": \"$hostapd_ctrl\"} \
-		}" | jsonfilter -l 1 -e @.pid)
+		}")"
 
 	ret="$?"
 
-	[ "$ret" != 0 ] && wireless_setup_vif_failed WPA_SUPPLICANT_FAILED
+	[ "$ret" != 0 -o -z "$supplicant_res" ] && wireless_setup_vif_failed WPA_SUPPLICANT_FAILED
 
-	wireless_add_process "$supplicant_pid" "/usr/sbin/wpa_supplicant" 1 1
+	wireless_add_process "$(jsonfilter -s "$supplicant_res" -l 1 -e @.pid)" "/usr/sbin/wpa_supplicant" 1 1
 
 	return $ret
 }
