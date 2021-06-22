@@ -16,13 +16,9 @@ ramips_setup_interfaces()
 	glinet,gl-mt1300|\
 	jcg,q20|\
 	lenovo,newifi-d1|\
-	mikrotik,routerboard-m33g)
-		ucidef_set_interfaces_lan_wan "lan1 lan2" "wan"
-		;;
+	mikrotik,routerboard-m33g|\
 	xiaomi,mir3g-v2)
-		ucidef_add_switch "switch0" \
-			"2:lan:2" "3:lan:1" "4:wan" "6t@eth0"
-		ucidef_set_interface_lan "eth0.1 ra0 rai0"
+		ucidef_set_interfaces_lan_wan "lan1 lan2" "wan"
 		;;
 	d-team,newifi-d2)
 		ucidef_add_switch "switch0" \
@@ -173,7 +169,6 @@ ramips_setup_macs()
 		wan_mac=$(macaddr_add "$lan_mac" 2)
 		;;
 	xiaomi,mir3g|\
-	xiaomi,mir3g-v2|\
 	xiaomi,mi-router-ac2100|\
 	xiaomi,redmi-router-ac2100)
 		lan_mac=$(cat /sys/class/net/eth0/address)
