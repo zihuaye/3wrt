@@ -1,3 +1,4 @@
+#!/bin/sh
 #
 # Copyright (C) 2011-2015 OpenWrt.org
 #
@@ -31,7 +32,7 @@ board=$(board_name)
 
 case "$board" in
 arcadyan,arv4525pw)
-	ucidef_set_led_netdev "wifi" "wifi" "green:wlan" "wlan0"
+	ucidef_set_led_netdev "wifi" "wifi" "arv4525pw:green:wlan" "wlan0"
 	;;
 esac
 

@@ -1,7 +1,9 @@
-# SPDX-License-Identifier: GPL-2.0-only
 #
 # Copyright (C) 2006-2008 OpenWrt.org
-
+#
+# This is free software, licensed under the GNU General Public License v2.
+# See /LICENSE for more information.
+#
 include $(TOPDIR)/rules.mk
 
 ARCH:=mipsel
@@ -10,7 +12,7 @@ BOARDNAME:=Broadcom BCM47xx/53xx (MIPS)
 FEATURES:=squashfs usb
 SUBTARGETS:=generic mips74k legacy
 
-KERNEL_PATCHVER:=5.4
+KERNEL_PATCHVER:=4.19
 KERNEL_TESTING_PATCHVER:=5.4
 
 define Target/Description
@@ -20,6 +22,7 @@ endef
 include $(INCLUDE_DIR)/target.mk
 
 DEFAULT_PACKAGES += swconfig nvram otrx \
-	kmod-leds-gpio kmod-gpio-button-hotplug
+	kmod-leds-gpio kmod-gpio-button-hotplug \
+	kmod-ledtrig-default-on kmod-ledtrig-timer kmod-ledtrig-netdev
 
 $(eval $(call BuildTarget))

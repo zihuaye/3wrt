@@ -39,7 +39,7 @@ platform_do_upgrade() {
 		;;
 	*)
 		# NOR devices: erase firmware if booted from initramfs
-		[ "$(rootfs_type)" = "tmpfs" ] && mtd erase firmware
+		[ -z "$(rootfs_type)" ] && mtd erase firmware
 
 		default_do_upgrade "$1"
 		;;

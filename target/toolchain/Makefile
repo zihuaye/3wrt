@@ -15,7 +15,7 @@ override MAKEFLAGS=
 
 TOOLCHAIN_NAME:=$(VERSION_DIST_SANITIZED)-toolchain-$(if $(CONFIG_VERSION_FILENAMES),$(VERSION_NUMBER)-)$(BOARD)$(if $(SUBTARGET),-$(SUBTARGET))_gcc-$(GCCV)$(DIR_SUFFIX).$(HOST_OS)-$(HOST_ARCH)
 TOOLCHAIN_BUILD_DIR:=$(BUILD_DIR)/$(TOOLCHAIN_NAME)
-EXCLUDE_DIRS:= \
+EXCLUDE_DIRS:=*/ccache \
 	*/initial \
 	*/stamp \
 	*/stampfiles \
@@ -33,10 +33,7 @@ $(BIN_DIR)/$(TOOLCHAIN_NAME).tar.bz2: clean
 	       toolchain-$(ARCH)$(ARCH_SUFFIX)_gcc-$(GCCV)$(DIR_SUFFIX) | \
 	       $(TAR) -xf - -C $(TOOLCHAIN_BUILD_DIR)
 
-	$(CP) \
-		$(TOPDIR)/LICENSES \
-		$(TOPDIR)/COPYING \
-		./files/README.TOOLCHAIN \
+	$(CP)  $(TOPDIR)/LICENSE ./files/README.TOOLCHAIN \
 		$(TOOLCHAIN_BUILD_DIR)/
 
 	$(CP) ./files/wrapper.sh $(TOOLCHAIN_PREFIX)/bin/$(REAL_GNU_TARGET_NAME)-wrapper.sh

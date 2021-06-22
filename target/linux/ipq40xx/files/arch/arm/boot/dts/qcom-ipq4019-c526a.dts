@@ -88,12 +88,12 @@
 		compatible = "gpio-leds";
 
 		led_sys: blue {
-			label = "blue:sys";
+			label = "c526a:blue:sys";
 			gpios = <&tlmm 36 GPIO_ACTIVE_LOW>;
 		};
 
 		led_boot: red {
-			label = "red:sys";
+			label = "c526a:red:sys";
 			gpios = <&tlmm 40 GPIO_ACTIVE_LOW>;
 			panic-indicator;
 		};
