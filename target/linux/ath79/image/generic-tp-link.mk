@@ -486,6 +486,18 @@ define Device/tplink_re450-v3
 endef
 TARGET_DEVICES += tplink_re450-v3
 
+define Device/tplink_re455-v1
+  $(Device/tplink-safeloader)
+  SOC := qca9563
+  IMAGE_SIZE := 7808k
+  DEVICE_MODEL := RE455
+  DEVICE_VARIANT := v1
+  DEVICE_PACKAGES := kmod-ath10k-ct-smallbuffers ath10k-firmware-qca988x-ct
+  TPLINK_BOARD_ID := RE455-V1
+  LOADER_TYPE := elf
+endef
+TARGET_DEVICES += tplink_re455-v1
+
 define Device/tplink_tl-mr6400-v1
   $(Device/tplink-8mlzma)
   SOC := qca9531
@@ -575,6 +587,21 @@ define Device/tplink_tl-wdr7500-v3
   SUPPORTED_DEVICES += archer-c7
 endef
 TARGET_DEVICES += tplink_tl-wdr7500-v3
+
+define Device/tplink_tl-wdr6500-v2
+  $(Device/tplink-8mlzma)
+  SOC := qca9561
+  DEVICE_MODEL := TL-WDR6500
+  DEVICE_VARIANT := v2
+  DEVICE_PACKAGES := kmod-ath10k-ct ath10k-firmware-qca988x-ct
+  IMAGE_SIZE := 8000k
+  KERNEL := kernel-bin | append-dtb | lzma | uImage lzma
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | uImage lzma | tplink-v1-header
+  TPLINK_HWID := 0x65000002
+  TPLINK_HEADER_VERSION := 2
+  SUPPORTED_DEVICES += tl-wdr6500-v2
+endef
+TARGET_DEVICES += tplink_tl-wdr6500-v2
 
 define Device/tplink_tl-wpa8630-v1
   $(Device/tplink-8mlzma)
@@ -692,7 +719,7 @@ define Device/tplink_tl-wr2543-v1
   DEVICE_PACKAGES := kmod-usb2 kmod-usb-ledtrig-usbport
   TPLINK_HWID := 0x25430001
   IMAGE/sysupgrade.bin := tplink-v1-image sysupgrade -v 3.13.99 | \
-	append-metadata | check-size
+	check-size | append-metadata
   IMAGE/factory.bin := tplink-v1-image factory -v 3.13.99
   SUPPORTED_DEVICES += tl-wr2543n
 endef
@@ -797,6 +824,16 @@ define Device/tplink_tl-wr902ac-v1
   SUPPORTED_DEVICES += tl-wr902ac-v1
 endef
 TARGET_DEVICES += tplink_tl-wr902ac-v1
+
+define Device/tplink_tl-wr941hp-v1
+  $(Device/tplink-safeloader)
+  SOC := tp9343
+  DEVICE_MODEL := TL-WR941HP
+  DEVICE_VARIANT := v1
+  TPLINK_BOARD_ID := TL-WR941HP-V1
+  IMAGE_SIZE := 7360k
+endef
+TARGET_DEVICES += tplink_tl-wr941hp-v1
 
 define Device/tplink_wbs210-v1
   $(Device/tplink-safeloader-okli)
