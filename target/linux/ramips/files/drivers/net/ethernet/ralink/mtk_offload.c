@@ -32,7 +32,7 @@ mtk_flow_hash_v4(struct flow_offload_tuple *tuple)
 
 	hash = ports ^ src ^ dst ^ ((hash_23_0 << 8) | (hash_31_24 >> 24));
 	hash = ((hash & 0xffff0000) >> 16 ) ^ (hash & 0xfffff);
-	hash &= 0x7ff;
+	hash &= 0xfff;
 	hash *= 2;;
 
 	return hash;
@@ -65,7 +65,7 @@ mtk_foe_prepare_v4(struct mtk_foe_entry *entry,
 	entry->ipv4_hnapt.iblk2.fqos = 1;
 #endif
 #ifdef CONFIG_RALINK
-	entry->ipv4_hnapt.iblk2.dp = 1;
+	entry->ipv4_hnapt.iblk2.dp = (dest->dev->netdev_ops->ndo_flow_offload ? 1 : 0);
 	if ((dest->flags & FLOW_OFFLOAD_PATH_VLAN) && (dest->vlan_id > 1))
 		entry->ipv4_hnapt.iblk2.qid += 8;
 #else
@@ -123,7 +123,7 @@ mtk_check_entry_available(struct mtk_eth *eth, u32 hash)
 {
 	struct mtk_foe_entry entry = ((struct mtk_foe_entry *)eth->foe_table)[hash];
 
-	return (entry.bfib1.state == BIND)? 0:1;
+	return (entry.bfib1.state == BIND || entry.udib1.sta == 1)? 0:1;
 }
 
 static void
@@ -156,10 +156,14 @@ int mtk_flow_offload(struct mtk_eth *eth,
 
 	if (otuple->l4proto != IPPROTO_TCP && otuple->l4proto != IPPROTO_UDP)
 		return -EINVAL;
-	
+
 	if (type == FLOW_OFFLOAD_DEL) {
+		rhash = (unsigned long)flow->timeout;
+		ohash = rhash >> 16;
+		rhash &= 0xffff;
 		flow = NULL;
-		synchronize_rcu();
+		rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
+		rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
 		return 0;
 	}
 
@@ -192,12 +196,46 @@ int mtk_flow_offload(struct mtk_eth *eth,
                 rhash += 1;
 	}
 
+	if (ohash != ((flow->timeout >> 16) & 0xffff)) {
+		if (ohash % 2 == 0) {
+			if (!mtk_check_entry_available(eth, ohash + 1)) {
+				return -EINVAL;
+			} else {
+				ohash += 1;
+				if (ohash != ((flow->timeout >> 16) & 0xffff)) {
+					return -EINVAL;
+				}
+			}
+		} else {
+			return -EINVAL;
+		}
+	}
+	if (rhash != ((flow->timeout >> 0) & 0xffff)) {
+		if (rhash % 2 == 0) {
+			if (!mtk_check_entry_available(eth, rhash + 1)) {
+				return -EINVAL;
+			} else {
+				rhash += 1;
+				if (rhash != ((flow->timeout >> 0) & 0xffff)) {
+					return -EINVAL;
+				}
+			}
+		} else {
+			return -EINVAL;
+		}
+	}
+
 	mtk_foe_set_mac(&orig, dest->eth_src, dest->eth_dest);
 	mtk_foe_set_mac(&reply, src->eth_src, src->eth_dest);
 	mtk_foe_write(eth, ohash, &orig);
 	mtk_foe_write(eth, rhash, &reply);
 	rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
 	rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
+
+	/* XXX: also the same was set in natflow
+	rhash |= ohash << 16;
+	flow->timeout = (void *)(unsigned long)rhash;
+	*/
 
 	return 0;
 }
@@ -301,7 +339,7 @@ static int mtk_init_foe_table(struct mtk_eth *eth)
 	return 0;
 }
 
-static int ra_ppe_start(struct mtk_eth *eth)
+static int mtk_ppe_start(struct mtk_eth *eth)
 {
 	int ret;
 
@@ -315,10 +353,19 @@ static int ra_ppe_start(struct mtk_eth *eth)
 	/* flush the table */
 	memset(eth->foe_table, 0, MTK_PPE_TBL_SZ);
 
+	if (IS_ENABLED(CONFIG_SOC_MT7621)) {
+		/* skip all entries that cross the 1024 byte boundary */
+		static const u8 skip[] = { 12, 25, 38, 51, 76, 89, 102 };
+		int i, k;
+		for (i = 0; i < MTK_PPE_ENTRY_CNT; i += 128)
+			for (k = 0; k < ARRAY_SIZE(skip); k++)
+				((struct mtk_foe_entry *)eth->foe_table)[i + skip[k]].udib1.sta = 1;
+	}
+
 	/* setup hashing */
 	mtk_m32(eth,
 		MTK_PPE_TB_CFG_HASH_MODE_MASK | MTK_PPE_TB_CFG_TBL_SZ_MASK,
-		MTK_PPE_TB_CFG_HASH_MODE1 | MTK_PPE_TB_CFG_TBL_SZ_4K,
+		MTK_PPE_TB_CFG_HASH_MODE1 | MTK_PPE_TB_CFG_TBL_SZ_8K,
 		MTK_REG_PPE_TB_CFG);
 
 	/* set the default hashing seed */
@@ -416,7 +463,7 @@ static int mtk_ppe_busy_wait(struct mtk_eth *eth)
 			return 0;
 		if (time_after(jiffies, t_start + HZ))
 			break;
-		usleep_range(10, 20);
+		cond_resched();
 	}
 
 	dev_err(eth->dev, "ppe: table busy timeout - resetting\n");
@@ -425,7 +472,7 @@ static int mtk_ppe_busy_wait(struct mtk_eth *eth)
 	return -ETIMEDOUT;
 }
 
-static int ra_ppe_stop(struct mtk_eth *eth)
+static int mtk_ppe_stop(struct mtk_eth *eth)
 {
 	u32 r1 = 0, r2 = 0;
 	int i;
@@ -496,8 +543,13 @@ static void mtk_offload_keepalive(struct fe_priv *eth, unsigned int hash)
 
 	rcu_read_lock();
 	flow = rcu_dereference(eth->foe_flow_table[hash]);
-	if (flow)
-		flow->timeout = jiffies + 30 * HZ;
+	if (flow) {
+		void (*func)(unsigned int);
+		func = (void *)flow->priv;
+		if (func) {
+			func(hash);
+		}
+	}
 	rcu_read_unlock();
 }
 
@@ -514,6 +566,12 @@ int ra_offload_check_rx(struct fe_priv *eth, struct sk_buff *skb, u32 rxd4)
 		return -1;
 	case MTK_CPU_REASON_PACKET_SAMPLING:
 		return -1;
+	case MTK_CPU_REASON_HIT_BIND_FORCE_CPU:
+		hash = FIELD_GET(MTK_RXD4_FOE_ENTRY, rxd4);
+		skb_set_hash(skb, (HWNAT_QUEUE_MAPPING_MAGIC | hash), PKT_HASH_TYPE_L4);
+		skb->vlan_tci |= HWNAT_QUEUE_MAPPING_MAGIC;
+		skb->pkt_type = PACKET_HOST;
+		/* fallthrough */
 	default:
 		return 0;
 	}
@@ -523,7 +581,7 @@ int ra_ppe_probe(struct mtk_eth *eth)
 {
 	int err;
 
-	err = ra_ppe_start(eth);
+	err = mtk_ppe_start(eth);
 	if (err)
 		return err;
 
@@ -536,5 +594,5 @@ int ra_ppe_probe(struct mtk_eth *eth)
 
 void ra_ppe_remove(struct mtk_eth *eth)
 {
-	ra_ppe_stop(eth);
+	mtk_ppe_stop(eth);
 }

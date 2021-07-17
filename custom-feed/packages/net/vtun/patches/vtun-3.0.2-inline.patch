@@ -1,0 +1,96 @@
+*** vtun-3.0.2.orig/linkfd.c	2008-01-08 06:35:43.000000000 +0800
+--- vtun-3.0.2/linkfd.c	2021-05-23 21:54:50.176496416 +0800
+***************
+*** 105,111 ****
+  }
+  
+   /* Run modules down (from head to tail) */
+! inline int lfd_run_down(int len, char *in, char **out)
+  {
+       register struct lfd_mod *mod;
+       
+--- 105,112 ----
+  }
+  
+   /* Run modules down (from head to tail) */
+! //inline int lfd_run_down(int len, char *in, char **out)
+! int lfd_run_down(int len, char *in, char **out)
+  {
+       register struct lfd_mod *mod;
+       
+***************
+*** 119,125 ****
+  }
+  
+  /* Run modules up (from tail to head) */
+! inline int lfd_run_up(int len, char *in, char **out)
+  {
+       register struct lfd_mod *mod;
+       
+--- 120,127 ----
+  }
+  
+  /* Run modules up (from tail to head) */
+! //inline int lfd_run_up(int len, char *in, char **out)
+! int lfd_run_up(int len, char *in, char **out)
+  {
+       register struct lfd_mod *mod;
+       
+***************
+*** 133,139 ****
+  }
+  
+  /* Check if modules are accepting the data(down) */
+! inline int lfd_check_down(void)
+  {
+       register struct lfd_mod *mod;
+       int err = 1;
+--- 135,142 ----
+  }
+  
+  /* Check if modules are accepting the data(down) */
+! //inline int lfd_check_down(void)
+! int lfd_check_down(void)
+  {
+       register struct lfd_mod *mod;
+       int err = 1;
+***************
+*** 145,151 ****
+  }
+  
+  /* Check if modules are accepting the data(up) */
+! inline int lfd_check_up(void)
+  {
+       register struct lfd_mod *mod;
+       int err = 1;
+--- 148,155 ----
+  }
+  
+  /* Check if modules are accepting the data(up) */
+! //inline int lfd_check_up(void)
+! int lfd_check_up(void)
+  {
+       register struct lfd_mod *mod;
+       int err = 1;
+
+*** vtun-3.0.2.orig/lfd_shaper.c     2008-01-08 06:35:36.000000000 +0800
+--- vtun-3.0.2/lfd_shaper.c 	     2021-05-23 17:48:15.138850831 +0800
+***************
+*** 69,75 ****
+  }
+
+  /* Convert tv struct to milisec */
+! unsigned long inline tv2ms(struct timeval tv)
+  {
+       register unsigned long ms = (tv.tv_sec * 1000)+(tv.tv_usec / 1000);
+       return  ms ? ms : 1;
+--- 69,76 ----
+  }
+
+  /* Convert tv struct to milisec */
+! //unsigned long inline tv2ms(struct timeval tv)
+! unsigned long tv2ms(struct timeval tv)
+  {
+       register unsigned long ms = (tv.tv_sec * 1000)+(tv.tv_usec / 1000);
+       return  ms ? ms : 1;
+
