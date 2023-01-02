@@ -24,7 +24,7 @@ Change-Id: Iddb97d6ba0a443b830d1ac23728434a417bc8a92
   *	@tc_at_ingress: used within tc_classify to distinguish in/egress
   *	@redirected: packet was redirected by packet classifier
   *	@from_ingress: packet was redirected from the ingress path
-@@ -851,7 +851,7 @@ struct sk_buff {
+@@ -852,7 +852,7 @@ struct sk_buff {
  #ifdef CONFIG_NET_CLS_ACT
  	__u8			tc_skip_classify:1;
  	__u8			tc_at_ingress:1;
@@ -35,7 +35,7 @@ Change-Id: Iddb97d6ba0a443b830d1ac23728434a417bc8a92
  	__u8			redirected:1;
 --- a/include/net/sch_generic.h
 +++ b/include/net/sch_generic.h
-@@ -757,31 +757,31 @@ static inline bool skb_skip_tc_classify(
+@@ -743,31 +743,31 @@ static inline bool skb_skip_tc_classify(
  /*
   * Set skb classify bit field.
   */

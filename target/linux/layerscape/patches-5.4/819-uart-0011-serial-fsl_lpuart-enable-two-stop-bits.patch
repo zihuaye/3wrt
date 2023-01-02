@@ -14,7 +14,7 @@ Signed-off-by: Fugang Duan <fugang.duan@nxp.com>
 
 --- a/drivers/tty/serial/fsl_lpuart.c
 +++ b/drivers/tty/serial/fsl_lpuart.c
-@@ -2135,11 +2135,12 @@ lpuart32_set_termios(struct uart_port *p
+@@ -2134,11 +2134,12 @@ lpuart32_set_termios(struct uart_port *p
  {
  	struct lpuart_port *sport = container_of(port, struct lpuart_port, port);
  	unsigned long flags;
@@ -28,7 +28,7 @@ Signed-off-by: Fugang Duan <fugang.duan@nxp.com>
  	modem = lpuart32_read(&sport->port, UARTMODIR);
  	/*
  	 * only support CS8 and CS7, and for CS7 must enable PE.
-@@ -2176,7 +2177,9 @@ lpuart32_set_termios(struct uart_port *p
+@@ -2175,7 +2176,9 @@ lpuart32_set_termios(struct uart_port *p
  	}
  
  	if (termios->c_cflag & CSTOPB)

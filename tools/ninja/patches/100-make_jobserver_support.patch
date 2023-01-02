@@ -1,180 +1,19 @@
-From c1a081c00f803fc28e51f155f25abe8346ce5f13 Mon Sep 17 00:00:00 2001
-From: Stefan Becker <stefanb@gpartner-nvidia.com>
-Date: Tue, 22 Mar 2016 13:48:07 +0200
-Subject: [PATCH] Add GNU make jobserver client support
-
-- add new TokenPool interface
-- GNU make implementation for TokenPool parses and verifies the magic
-  information from the MAKEFLAGS environment variable
-- RealCommandRunner tries to acquire TokenPool
-  * if no token pool is available then there is no change in behaviour
-- When a token pool is available then RealCommandRunner behaviour
-  changes as follows
-  * CanRunMore() only returns true if TokenPool::Acquire() returns true
-  * StartCommand() calls TokenPool::Reserve()
-  * WaitForCommand() calls TokenPool::Release()
-
-Documentation for GNU make jobserver
-
-  http://make.mad-scientist.net/papers/jobserver-implementation/
-
-Fixes https://github.com/ninja-build/ninja/issues/1139
-
-Add TokenPool monitoring to SubprocessSet::DoWork()
-
-Improve on the original jobserver client implementation. This makes
-ninja a more aggressive GNU make jobserver client.
-
-- add monitor interface to TokenPool
-- TokenPool is passed down when main loop indicates that more work is
-  ready and would be allowed to start if a token becomes available
-- posix: update DoWork() to monitor TokenPool read file descriptor
-- WaitForCommand() exits when DoWork() sets token flag
-- Main loop starts over when WaitForCommand() sets token exit status
-
-Ignore jobserver when -jN is forced on command line
-
-This emulates the behaviour of GNU make.
-
-- add parallelism_from_cmdline flag to build configuration
-- set the flag when -jN is given on command line
-- pass the flag to TokenPool::Get()
-- GNUmakeTokenPool::Setup()
-  * prints a warning when the flag is true and jobserver was detected
-  * returns false, i.e. jobserver will be ignored
-- ignore config.parallelism in CanRunMore() when we have a valid
-  TokenPool, because it gets always initialized to a default when not
-  given on the command line
-
-Honor -lN from MAKEFLAGS
-
-This emulates the behaviour of GNU make.
-
-- build: make a copy of max_load_average and pass it to TokenPool.
-- GNUmakeTokenPool: if we detect a jobserver and a valid -lN argument in
-  MAKEFLAGS then set max_load_average to N.
-
-Use LinePrinter for TokenPool messages
-
-- replace printf() with calls to LinePrinter
-- print GNU make jobserver message only when verbose build is requested
-
-Prepare PR for merging
-
-- fix Windows build error in no-op TokenPool implementation
-- improve Acquire() to block for a maximum of 100ms
-- address review comments
-
-Add tests for TokenPool
-
-- TokenPool setup
-- GetMonitorFd() API
-- implicit token and tokens in jobserver pipe
-- Acquire() / Reserve() / Release() protocol
-- Clear() API
-
-Add tests for subprocess module
-
-- add TokenPoolTest stub to provide TokenPool::GetMonitorFd()
-- add two tests
-  * both tests set up a dummy GNUmake jobserver pipe
-  * both tests call DoWork() with TokenPoolTest
-  * test 1: verify that DoWork() detects when a token is available
-  * test 2: verify that DoWork() works as before without a token
-- the tests are not compiled in under Windows
-
-Add tests for build module
-
-Add tests that verify the token functionality of the builder main loop.
-We replace the default fake command runner with a special version where
-the tests can control each call to AcquireToken(), CanRunMore() and
-WaitForCommand().
-
-Add Win32 implementation for GNUmakeTokenPool
-
-GNU make uses a semaphore as jobserver protocol on Win32. See also
-
-   https://www.gnu.org/software/make/manual/html_node/Windows-Jobserver.html
-
-Usage is pretty simple and straightforward, i.e. WaitForSingleObject()
-to obtain a token and ReleaseSemaphore() to return it.
-
-Unfortunately subprocess-win32.cc uses an I/O completion port (IOCP).
-IOCPs aren't waitable objects, i.e. we can't use WaitForMultipleObjects()
-to wait on the IOCP and the token semaphore at the same time.
-
-Therefore GNUmakeTokenPoolWin32 creates a child thread that waits on the
-token semaphore and posts a dummy I/O completion status on the IOCP when
-it was able to obtain a token. That unblocks SubprocessSet::DoWork() and
-it can then check if a token became available or not.
-
-- split existing GNUmakeTokenPool into common and platform bits
-- add GNUmakeTokenPool interface
-- move the Posix bits to GNUmakeTokenPoolPosix
-- add the Win32 bits as GNUmakeTokenPoolWin32
-- move Setup() method up to TokenPool interface
-- update Subprocess & TokenPool tests accordingly
-
-Prepare PR for merging - part II
-
-- remove unnecessary "struct" from TokenPool
-- add PAPCFUNC cast to QueryUserAPC()
-- remove hard-coded MAKEFLAGS string from win32
-- remove useless build test CompleteNoWork
-- rename TokenPoolTest to TestTokenPool
-- add tokenpool modules to CMake build
-- remove unused no-op TokenPool implementation
-- address review comments from
-
-https://github.com/ninja-build/ninja/pull/1140#pullrequestreview-195195803
-https://github.com/ninja-build/ninja/pull/1140#pullrequestreview-185089255
-https://github.com/ninja-build/ninja/pull/1140#issuecomment-473898963
-https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
----
- CMakeLists.txt                  |   8 +-
- configure.py                    |   7 +-
- src/build.cc                    | 127 ++++++++---
- src/build.h                     |  12 +-
- src/build_test.cc               | 363 +++++++++++++++++++++++++++++++-
- src/exit_status.h               |   3 +-
- src/ninja.cc                    |   1 +
- src/subprocess-posix.cc         |  33 ++-
- src/subprocess-win32.cc         |  11 +-
- src/subprocess.h                |   8 +-
- src/subprocess_test.cc          | 149 +++++++++++--
- src/tokenpool-gnu-make-posix.cc | 202 ++++++++++++++++++
- src/tokenpool-gnu-make-win32.cc | 239 +++++++++++++++++++++
- src/tokenpool-gnu-make.cc       | 108 ++++++++++
- src/tokenpool-gnu-make.h        |  40 ++++
- src/tokenpool.h                 |  42 ++++
- src/tokenpool_test.cc           | 269 +++++++++++++++++++++++
- 17 files changed, 1562 insertions(+), 60 deletions(-)
- create mode 100644 src/tokenpool-gnu-make-posix.cc
- create mode 100644 src/tokenpool-gnu-make-win32.cc
- create mode 100644 src/tokenpool-gnu-make.cc
- create mode 100644 src/tokenpool-gnu-make.h
- create mode 100644 src/tokenpool.h
- create mode 100644 src/tokenpool_test.cc
-
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -94,6 +94,7 @@ add_library(libninja OBJECT
- 	src/parser.cc
+@@ -112,6 +112,7 @@ add_library(libninja OBJECT
  	src/state.cc
+ 	src/status.cc
  	src/string_piece_util.cc
 +	src/tokenpool-gnu-make.cc
  	src/util.cc
  	src/version.cc
  )
-@@ -104,12 +105,16 @@ if(WIN32)
- 		src/msvc_helper-win32.cc
+@@ -123,9 +124,13 @@ if(WIN32)
  		src/msvc_helper_main-win32.cc
  		src/getopt.c
+ 		src/minidump-win32.cc
 +		src/tokenpool-gnu-make-win32.cc
  	)
- 	if(MSVC)
- 		target_sources(libninja PRIVATE src/minidump-win32.cc)
- 	endif()
  else()
 -	target_sources(libninja PRIVATE src/subprocess-posix.cc)
 +	target_sources(libninja PRIVATE
@@ -184,7 +23,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  	if(CMAKE_SYSTEM_NAME STREQUAL "OS400" OR CMAKE_SYSTEM_NAME STREQUAL "AIX")
  		target_sources(libninja PRIVATE src/getopt.c)
  	endif()
-@@ -182,6 +187,7 @@ if(BUILD_TESTING)
+@@ -204,6 +209,7 @@ if(BUILD_TESTING)
      src/string_piece_util_test.cc
      src/subprocess_test.cc
      src/test.cc
@@ -192,11 +31,39 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
      src/util_test.cc
    )
    if(WIN32)
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,25 @@
++Kitware maintains this branch of Ninja in order to provide features
++that have not yet been integrated upstream:
++
++* make-style jobserver support
++
++This branch may be *rebased* without notice for maintenance on top of
++the upstream `master` branch.  It will be removed once upstream has
++integrated the features.
++
++Parts of this branch are under upstream consideration:
++
++* https://github.com/ninja-build/ninja/pull/1140
++
++As each PR is accepted additional parts of this branch will be submitted
++incrementally.
++
++Binaries built from versions of this branch are available here:
++
++* https://github.com/Kitware/ninja/releases
++
++-----------------------------------------------------------------------------
++
+ # Ninja
+ 
+ Ninja is a small build system with a focus on speed.
 --- a/configure.py
 +++ b/configure.py
-@@ -514,11 +514,13 @@ for name in ['build',
-              'parser',
+@@ -517,11 +517,13 @@ for name in ['build',
               'state',
+              'status',
               'string_piece_util',
 +             'tokenpool-gnu-make',
               'util',
@@ -208,7 +75,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
                   'includes_normalize-win32',
                   'msvc_helper-win32',
                   'msvc_helper_main-win32']:
-@@ -527,7 +529,9 @@ if platform.is_windows():
+@@ -530,7 +532,9 @@ if platform.is_windows():
          objs += cxx('minidump-win32', variables=cxxvariables)
      objs += cc('getopt')
  else:
@@ -219,7 +86,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  if platform.is_aix():
      objs += cc('getopt')
  if platform.is_msvc():
-@@ -582,6 +586,7 @@ for name in ['build_log_test',
+@@ -588,6 +592,7 @@ for name in ['build_log_test',
               'string_piece_util_test',
               'subprocess_test',
               'test',
@@ -229,15 +96,15 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  if platform.is_windows():
 --- a/src/build.cc
 +++ b/src/build.cc
-@@ -38,6 +38,7 @@
- #include "graph.h"
+@@ -35,6 +35,7 @@
  #include "state.h"
+ #include "status.h"
  #include "subprocess.h"
 +#include "tokenpool.h"
  #include "util.h"
  
  using namespace std;
-@@ -50,8 +51,9 @@ struct DryRunCommandRunner : public Comm
+@@ -47,8 +48,9 @@ struct DryRunCommandRunner : public Comm
  
    // Overridden from CommandRunner:
    virtual bool CanRunMore() const;
@@ -248,7 +115,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  
   private:
    queue<Edge*> finished_;
-@@ -61,12 +63,16 @@ bool DryRunCommandRunner::CanRunMore() c
+@@ -58,12 +60,16 @@ bool DryRunCommandRunner::CanRunMore() c
    return true;
  }
  
@@ -266,16 +133,16 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
     if (finished_.empty())
       return false;
  
-@@ -379,7 +385,7 @@ void Plan::EdgeWanted(const Edge* edge)
+@@ -149,7 +155,7 @@ void Plan::EdgeWanted(const Edge* edge)
  }
  
  Edge* Plan::FindWork() {
 -  if (ready_.empty())
 +  if (!more_ready())
      return NULL;
-   set<Edge*>::iterator e = ready_.begin();
+   EdgeSet::iterator e = ready_.begin();
    Edge* edge = *e;
-@@ -665,19 +671,39 @@ void Plan::Dump() const {
+@@ -448,19 +454,39 @@ void Plan::Dump() const {
  }
  
  struct RealCommandRunner : public CommandRunner {
@@ -318,7 +185,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  vector<Edge*> RealCommandRunner::GetActiveEdges() {
    vector<Edge*> edges;
    for (map<const Subprocess*, Edge*>::iterator e = subproc_to_edge_.begin();
-@@ -688,14 +714,23 @@ vector<Edge*> RealCommandRunner::GetActi
+@@ -471,14 +497,23 @@ vector<Edge*> RealCommandRunner::GetActi
  
  void RealCommandRunner::Abort() {
    subprocs_.Clear();
@@ -347,7 +214,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  }
  
  bool RealCommandRunner::StartCommand(Edge* edge) {
-@@ -703,19 +738,33 @@ bool RealCommandRunner::StartCommand(Edg
+@@ -486,19 +521,33 @@ bool RealCommandRunner::StartCommand(Edg
    Subprocess* subproc = subprocs_.Add(command, edge->use_console());
    if (!subproc)
      return false;
@@ -384,7 +251,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
    result->status = subproc->Finish();
    result->output = subproc->GetOutput();
  
-@@ -825,38 +874,42 @@ bool Builder::Build(string* err) {
+@@ -620,38 +669,42 @@ bool Builder::Build(string* err) {
    // command runner.
    // Second, we attempt to wait for / reap the next finished command.
    while (plan_.more_to_do()) {
@@ -448,7 +315,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
            result.status == ExitInterrupted) {
          Cleanup();
          status_->BuildFinished();
-@@ -864,6 +917,10 @@ bool Builder::Build(string* err) {
+@@ -659,6 +712,10 @@ bool Builder::Build(string* err) {
          return false;
        }
  
@@ -461,7 +328,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
          Cleanup();
 --- a/src/build.h
 +++ b/src/build.h
-@@ -55,6 +55,9 @@ struct Plan {
+@@ -52,6 +52,9 @@ struct Plan {
    /// Returns true if there's more work to be done.
    bool more_to_do() const { return wanted_edges_ > 0 && command_edges_ > 0; }
  
@@ -471,7 +338,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
    /// Dumps the current state of the plan.
    void Dump() const;
  
-@@ -139,6 +142,7 @@ private:
+@@ -136,6 +139,7 @@ private:
  struct CommandRunner {
    virtual ~CommandRunner() {}
    virtual bool CanRunMore() const = 0;
@@ -479,7 +346,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
    virtual bool StartCommand(Edge* edge) = 0;
  
    /// The result of waiting for a command.
-@@ -150,7 +154,9 @@ struct CommandRunner {
+@@ -147,7 +151,9 @@ struct CommandRunner {
      bool success() const { return status == ExitSuccess; }
    };
    /// Wait for a command to complete, or return false if interrupted.
@@ -490,7 +357,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  
    virtual std::vector<Edge*> GetActiveEdges() { return std::vector<Edge*>(); }
    virtual void Abort() {}
-@@ -158,7 +164,8 @@ struct CommandRunner {
+@@ -155,7 +161,8 @@ struct CommandRunner {
  
  /// Options (e.g. verbosity, parallelism) passed to a build.
  struct BuildConfig {
@@ -500,7 +367,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
                    failures_allowed(1), max_load_average(-0.0f) {}
  
    enum Verbosity {
-@@ -169,6 +176,7 @@ struct BuildConfig {
+@@ -167,6 +174,7 @@ struct BuildConfig {
    Verbosity verbosity;
    bool dry_run;
    int parallelism;
@@ -518,7 +385,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  
  #include "build_log.h"
  #include "deps_log.h"
-@@ -473,8 +474,9 @@ struct FakeCommandRunner : public Comman
+@@ -474,8 +475,9 @@ struct FakeCommandRunner : public Comman
  
    // CommandRunner impl
    virtual bool CanRunMore() const;
@@ -529,7 +396,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
    virtual vector<Edge*> GetActiveEdges();
    virtual void Abort();
  
-@@ -580,6 +582,10 @@ bool FakeCommandRunner::CanRunMore() con
+@@ -578,6 +580,10 @@ bool FakeCommandRunner::CanRunMore() con
    return active_edges_.size() < max_active_edges_;
  }
  
@@ -540,7 +407,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  bool FakeCommandRunner::StartCommand(Edge* edge) {
    assert(active_edges_.size() < max_active_edges_);
    assert(find(active_edges_.begin(), active_edges_.end(), edge)
-@@ -625,7 +631,7 @@ bool FakeCommandRunner::StartCommand(Edg
+@@ -649,7 +655,7 @@ bool FakeCommandRunner::StartCommand(Edg
    return true;
  }
  
@@ -549,9 +416,9 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
    if (active_edges_.empty())
      return false;
  
-@@ -3302,3 +3308,356 @@ TEST_F(BuildTest, DyndepTwoLevelDiscover
-   EXPECT_EQ("touch tmp", command_runner_.commands_ran_[3]);
-   EXPECT_EQ("touch out", command_runner_.commands_ran_[4]);
+@@ -3985,3 +3991,356 @@ TEST_F(BuildTest, ValidationWithCircular
+   EXPECT_FALSE(builder_.AddTarget("out", &err));
+   EXPECT_EQ("dependency cycle: validate -> validate_in -> validate", err);
  }
 +
 +/// The token tests are concerned with the main loop functionality when
@@ -920,14 +787,14 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  #endif  // NINJA_EXIT_STATUS_H_
 --- a/src/ninja.cc
 +++ b/src/ninja.cc
-@@ -1289,6 +1289,7 @@ int ReadFlags(int* argc, char*** argv,
+@@ -1447,6 +1447,7 @@ int ReadFlags(int* argc, char*** argv,
          // We want to run N jobs in parallel. For N = 0, INT_MAX
          // is close enough to infinite for most sane builds.
          config->parallelism = value > 0 ? value : INT_MAX;
 +        config->parallelism_from_cmdline = true;
+         deferGuessParallelism.needGuess = false;
          break;
        }
-       case 'k': {
 --- a/src/subprocess-posix.cc
 +++ b/src/subprocess-posix.cc
 @@ -13,6 +13,7 @@
@@ -1063,7 +930,7 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
  
    Subprocess* Add(const std::string& command, bool use_console = false);
 -  bool DoWork();
-+  bool DoWork(struct TokenPool* tokens);
++  bool DoWork(TokenPool* tokens);
    Subprocess* NextFinished();
    void Clear();
  
@@ -2277,3 +2144,14 @@ https://github.com/ninja-build/ninja/pull/1140#issuecomment-596624610
 +  // implicit token
 +  EXPECT_TRUE(tokens_->Acquire());
 +}
+--- a/src/version.cc
++++ b/src/version.cc
+@@ -20,7 +20,7 @@
+ 
+ using namespace std;
+ 
+-const char* kNinjaVersion = "1.11.1";
++const char* kNinjaVersion = "1.11.1.git.kitware.jobserver-1";
+ 
+ void ParseVersion(const string& version, int* major, int* minor) {
+   size_t end = version.find('.');
